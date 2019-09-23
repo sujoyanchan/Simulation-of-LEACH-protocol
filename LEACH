@@ -1,0 +1,155 @@
+LEACH
+
+% Clean memory and command window
+clear,clc,close all
+ 
+%% Parameters
+N = 100;          
+W = 500;         
+L = 500;          
+p = 0.1;       
+num_rounds = 3000;  
+ 
+Ei = 1;              
+Etrans = 5.0000e-6; 
+Erec = 5.0000e-6;   
+Eagg = 4.0000e-7;   
+Efs = 1.0000e-9;     
+Emp = 0.0013e-12;
+dc=sqrt(Efs/Emp);
+ 
+CHpl = 1000;             
+ 
+Tsetup = 3;          
+Tss = 10;            
+ 
+% Position of sink
+SX = W/2; SY = L/2;
+% Preallocation for energy calculations
+E = Ei*ones(1,N);         
+EH = zeros(1,num_rounds); 
+% Preallocation for dead nodes calculations
+Ecrit = 0;                 
+Ncrit = fix((95/100)*N);   
+Dead = false(1,N);      
+DeadH = zeros(1,num_rounds);
+% Preallocation for Bits sent calculations
+BitsH = zeros(1,num_rounds);
+ 
+ 
+%% Building the WSN
+% 1st row: states of being a CH, 1:never been CH, 0:has been CH 
+% 2nd: x-position, 3rd: y-position
+net = [ones(1,N);rand([1,N])*W;rand([1,N])*L];
+figure('Position',[34 30 792 613]);
+ 
+%% Simulating LEACH for each round
+for r=1:num_rounds 
+    
+    %%%% Choosing Cluster heads %%%%
+    [net(1,:),CH] = SelectCH(net(1,:),Dead,p,r);
+    
+    %%%% Energy calculations %%%%
+    EH(r) = sum(E); 
+    numClust = sum(CH);
+    D = sqrt((net(2,CH) - SX).^2 + (net(3,CH) - SY).^2);
+    E(CH) = E(CH) - (((Etrans+Eagg)*CHpl)+...
+    ((D<dc).*(Efs*CHpl*(D.^ 2)) + ((D>dc).*(Emp.*CHpl*(D.^4)))) + (CHpl*Erec*round(N/numClust)));
+    rest = N-numClust-sum(double(Dead));
+    mD = zeros(1,rest); tmp = net(2:3,~CH&~Dead);
+    for i=1:rest, mD(i) = func(tmp(1,i),tmp(2,i),net,CH,SX,SY); end
+    E(~CH&~Dead) = E(~CH&~Dead) - ((CHpl*Etrans) +...  
+    ((mD<dc).*(Efs*CHpl*(mD.^2)) + (mD>dc).*(Emp*CHpl*(mD.^4))) + (Erec*CHpl));
+    %finally updating alive status to all nodes
+    E(Dead) = 0;
+    Dead(E<=Ecrit) = true ; DeadH(r)=sum(double(Dead));
+    %%%% sent bits %%%%
+    BitsH(r+1) = BitsH(r) + numClust*CHpl + rest*CHpl;
+    
+    %%%% Showing updated net %%%%
+    net = DrawNet(net,N,CH,Dead,SX,SY);
+    title(['Normal nodes:Black ---- CH:Red ---- Dead:Empty circle --- round (',num2str(r),')']);
+    drawnow
+    
+    if DeadH(r)>=Ncrit,break;end 
+end
+ 
+%% Plotting analysis of network preformance
+T = (Tsetup+Tss)*(0:r-1);
+EH = EH(1:r); 
+DeadH = DeadH(1:r); 
+EHdis = (N*Ei)-EH;
+AliveH = N-DeadH;
+BitsH = BitsH(2:r+1);
+ 
+figure('Position',[131 59 792 613]);
+plot(T,EHdis,'-x'); 
+xlabel('Time (s)'); 
+ylabel('Energy (j)');
+title('Total energy dissipated')
+legend('LEACH')
+ 
+figure('Position',[298 30 792 613]);
+plot(T,AliveH,'-x'); 
+xlabel('Time (s)'); 
+ylabel('No of live Sensors nodes')
+title('Life time of sensor nodes')
+legend('LEACH')
+ 
+figure('Position',[511 61 792 613]);
+plot(T,BitsH,'-x'); 
+xlabel('Time (s)'); 
+ylabel('Throughput (no of packets)');
+title(['Throughput (' num2str(N) ' Sensor nodes)'])
+legend('LEACH')
+
+
+Select CH
+function [G,CH] = SelectCH(G,D,p,r)
+ 
+tmp = rand(size(G));
+T=G;
+idx=T==1;
+ 
+if  sum(G)<p*length(tmp);
+    G=ones(size(G));
+    idx = G==1;
+end
+T=zeros(size(G));
+T(idx) = p / (1-p * mod(r, round(1 / p)));
+T(~idx) = 0; 
+T(D) = 0;
+CH = tmp<T; 
+G(CH) = 0; 
+
+
+DrawNet
+function net = DrawNet(net,N,CH,D,SX,SY)
+ 
+% normal nodes
+plot(net(2,~CH&~D),net(3,~CH&~D),'ko','MarkerSize',...
+    5,'MarkerFaceColor','k'); hold on;
+% dead nodes
+plot(net(2,D),net(3,D),'ko','MarkerSize',5);
+% Cluster heads
+plot(net(2,CH),net(3,CH),'ko','MarkerSize',...
+    7,'MarkerFaceColor','r');
+% The sink
+scatter(SX,SY,100,'bo','filled')
+text(SX+2,SY+2,'Sink','FontSize',10,'VerticalAlignment','Baseline');
+% titles
+s = int2str((1:N)');
+text(net(2,:)+1,net(3,:)+1,s,'FontSize',8,'VerticalAlignment','Baseline');
+xlabel('\it x \rm [m] \rightarrow');
+ylabel('\it y \rm [m] \rightarrow');
+ 
+hold off
+
+
+func
+function d = func(x,y,net,CH,SX,SY)
+if sum(CH) == 0
+    d=sqrt((x-SX).^2+(y-SY).^2);
+else
+    d=min(sqrt((net(2,CH) - x).^2 + (net(3,CH) - y).^2));
+end
